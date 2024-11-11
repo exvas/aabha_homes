@@ -48,7 +48,9 @@ class RunningCostEntry(Document):
 			WHERE 
 				MONTH(GLE.posting_date) = {month} AND
 				GLE.debit > 0.00 AND
-				ACC.custom_is_running_cost != 1
+				ACC.custom_is_running_cost != 1 AND
+				GLE.cost_center != "Main - AIS" AND
+				GLE.cost_center != ""
 				{filters}
 		""".format(
 			month=datetime.strptime(self.date, "%Y-%m-%d").month,
@@ -66,7 +68,9 @@ class RunningCostEntry(Document):
 				GLE.account = ACC.name
 			WHERE 
 				MONTH(GLE.posting_date) = {month} AND
-				ACC.custom_is_running_cost != 1
+				ACC.custom_is_running_cost != 1 AND
+				GLE.cost_center != "Main - AIS" AND
+				GLE.cost_center != ""
 				{filters}
 		""".format(
 			month=datetime.strptime(self.date, "%Y-%m-%d").month,
@@ -84,7 +88,9 @@ class RunningCostEntry(Document):
 				GLE.account = ACC.name
 			WHERE 
 				MONTH(GLE.posting_date) = {month} AND
-				ACC.custom_is_running_cost = 1
+				ACC.custom_is_running_cost = 1 AND
+				GLE.cost_center != "Main - AIS" AND
+				GLE.cost_center != ""
 		""".format(
 			month=datetime.strptime(self.date, "%Y-%m-%d").month,
 			filters=filters
@@ -107,7 +113,9 @@ class RunningCostEntry(Document):
 			WHERE 
 				MONTH(GLE.posting_date) = {month} AND
 				GLE.debit > 0.00 AND
-				ACC.custom_is_running_cost != 1
+				ACC.custom_is_running_cost != 1 AND
+				GLE.cost_center != "Main - AIS" AND
+				GLE.cost_center != ""
 				{filters}
 			GROUP BY
 				GLE.cost_center
