@@ -141,9 +141,7 @@ class RunningCostEntry(Document):
 				GLE.account = ACC.name
 			WHERE 
 				MONTH(GLE.posting_date) = {month} AND
-				ACC.custom_is_running_cost = 1 AND
-				GLE.cost_center != "Main - AIS" AND
-				GLE.cost_center IS NOT NULL
+				ACC.custom_is_running_cost = 1
 		""".format(
 			month=datetime.strptime(self.date, "%Y-%m-%d").month
 		), as_dict=True)
@@ -163,9 +161,7 @@ class RunningCostEntry(Document):
 			WHERE 
 				MONTH(GLE.posting_date) = {month} AND
 				GLE.debit > 0.00 AND
-				ACC.custom_is_running_cost = 1 AND
-				GLE.cost_center != "Main - AIS" AND
-				GLE.cost_center IS NOT NULL
+				ACC.custom_is_running_cost = 1
 		""".format(
 			month=datetime.strptime(self.date, "%Y-%m-%d").month
 		), as_dict=True)
