@@ -48,7 +48,7 @@ class SiteWages(Document):
 	def create_je(self):
 		je_doc = frappe.new_doc("Journal Entry")
 		je_doc.company = frappe.defaults.get_defaults().company
-		je_doc.posting_date = date.today()
+		je_doc.posting_date = self.posting_date
 		je_doc.cheque_no = self.name
 		je_doc.cheque_date = self.posting_date
 		emp_list = frappe.db.get_all("Site Wages Details", {"parent": self.name},
