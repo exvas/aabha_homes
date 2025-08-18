@@ -1,10 +1,8 @@
-# Copyright (c) 2023, sammish and contributors
-# For license information, please see license.txt
-
+ # Copyright (c) 2023, sammish and contributors
 import frappe
 from frappe.model.document import Document
 from datetime import date
-
+from decimal import Decimal, ROUND_HALF_UP
 
 class SiteWages(Document):
 	def before_submit(self):
@@ -14,29 +12,29 @@ class SiteWages(Document):
 
 	def on_cancel(self):
 		if frappe.db.exists("Wages Slip",
-		{"site_wages":self.name, "docstatus": ["=", "1"]}):
+			{"site_wages": self.name, "docstatus": ["=", "1"]}):
 			ws_list = frappe.db.get_list("Wages Slip",
-			{"site_wages":self.name, "docstatus": ["=", "1"]}, pluck="name")
+				{"site_wages": self.name, "docstatus": ["=", "1"]}, pluck="name")
 			for ws in ws_list:
 				ws_doc = frappe.get_doc("Wages Slip", ws)
 				ws_doc.cancel()
 
 		je = frappe.db.exists("Journal Entry",
-		{"cheque_no":self.name, "docstatus": ["=", "1"]})
+			{"cheque_no": self.name, "docstatus": ["=", "1"]})
 		if je:
 			je_doc = frappe.get_doc("Journal Entry", je)
 			je_doc.cancel()
 
 		for row in self.site_wages_details:
 			wwb = frappe.db.exists("Workers Wages Balance",
-			{"cost_center": self.cost_center, "worker_name": row.workers_name, "docstatus": ["!=", "2"]})
+				{"cost_center": self.cost_center, "worker_name": row.workers_name, "docstatus": ["!=", "2"]})
 			if wwb and row.previous_balance:
 				wwb_doc = frappe.get_doc("Workers Wages Balance", wwb)
 				wwb_doc.balance_amount = row.previous_balance
 				wwb_doc.save(ignore_permissions=True)
 		advance_list = frappe.db.get_list(
 			"Wages Advance",
-			{"site_wages":self.name, "cost_center": self.cost_center},
+			{"site_wages": self.name, "cost_center": self.cost_center},
 			pluck="name",
 			ignore_permissions=True
 		)
@@ -44,7 +42,7 @@ class SiteWages(Document):
 			for al in advance_list:
 				frappe.db.set_value("Wages Advance", al, "status", "Submitted")
 				frappe.db.set_value("Wages Advance", al, "site_wages", "")
-				
+
 	def create_je(self):
 		je_doc = frappe.new_doc("Journal Entry")
 		je_doc.company = frappe.defaults.get_defaults().company
@@ -52,29 +50,43 @@ class SiteWages(Document):
 		je_doc.cheque_no = self.name
 		je_doc.cheque_date = self.posting_date
 		emp_list = frappe.db.get_all("Site Wages Details", {"parent": self.name},
-		["workers_name as party", "net_pay as credit_in_account_currency", "advance_amount"])
+			["workers_name as party", "net_pay as credit_in_account_currency", "advance_amount"])
 		credit_acc = frappe.db.get_single_value("Aabha Homes Settings", "wages_payable_account")
 		debit_acc = frappe.db.get_single_value("Aabha Homes Settings", "wages_expense_account")
-		debit_amount = frappe.db.get_value("Site Wages Details", 
-		{"parent":self.name}, ["SUM(net_pay)"])
+		debit_amount = frappe.db.get_value("Site Wages Details", {"parent": self.name}, ["SUM(net_pay)"])
 		if not credit_acc or not debit_acc:
 			frappe.throw("Please Setup Aabha Homes Settings")
-		total_advance_amount = 0
+		total_advance_amount = Decimal('0.00')
+		accounts = []
 		if emp_list:
 			for emp in emp_list:
 				emp["party_type"] = "Employee"
 				emp["account"] = credit_acc
 				emp["cost_center"] = self.cost_center
-				je_doc.append("accounts", emp)
+				# Round credit
+				emp["credit_in_account_currency"] = float(Decimal(emp.get("credit_in_account_currency", 0) or 0).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP))
+				accounts.append({
+					"account": emp["account"],
+					"party_type": emp["party_type"],
+					"party": emp["party"],
+					"credit_in_account_currency": emp["credit_in_account_currency"],
+					"cost_center": emp["cost_center"]
+				})
 
 				if emp.get("advance_amount"):
-					emp["account"] = frappe.db.get_single_value("Aabha Homes Settings", "wages_advance")
-					emp["credit_in_account_currency"] = emp.get("advance_amount")
-					je_doc.append("accounts", emp)
-					total_advance_amount += emp.get("advance_amount")
+					adv_acc = frappe.db.get_single_value("Aabha Homes Settings", "wages_advance")
+					adv_amt = float(Decimal(emp.get("advance_amount") or 0).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP))
+					accounts.append({
+						"account": adv_acc,
+						"party_type": emp["party_type"],
+						"party": emp["party"],
+						"credit_in_account_currency": adv_amt,
+						"cost_center": emp["cost_center"]
+					})
+					total_advance_amount += Decimal(str(adv_amt))
 					advance_list = frappe.db.get_list(
 						"Wages Advance",
-						{"worker_name":emp.get("party"), "status":["!=", "Paid"], "docstatus":1, "cost_center":self.cost_center},
+						{"worker_name": emp.get("party"), "status": ["!=", "Paid"], "docstatus": 1, "cost_center": self.cost_center},
 						pluck="name",
 						ignore_permissions=True
 					)
@@ -82,13 +94,34 @@ class SiteWages(Document):
 						for al in advance_list:
 							frappe.db.set_value("Wages Advance", al, "status", "Paid")
 							frappe.db.set_value("Wages Advance", al, "site_wages", self.name)
-			je_doc.append("accounts", {
-				"account": debit_acc, 
-				"debit_in_account_currency": debit_amount + total_advance_amount, 
+			# Add debit entry
+			debit_total = Decimal(str(debit_amount or 0)) + total_advance_amount
+			debit_total = debit_total.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+			accounts.append({
+				"account": debit_acc,
+				"debit_in_account_currency": float(debit_total),
 				"cost_center": self.cost_center
 			})
+
+		# Balance the JE
+		total_debit = sum(Decimal(str(a.get("debit_in_account_currency", 0) or 0)) for a in accounts)
+		total_credit = sum(Decimal(str(a.get("credit_in_account_currency", 0) or 0)) for a in accounts)
+		diff = (total_debit - total_credit).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+		if abs(diff) > Decimal('0.00') and abs(diff) < Decimal('0.05'):
+			# Adjust the last credit or debit entry
+			for a in reversed(accounts):
+				if a.get("credit_in_account_currency"):
+					a["credit_in_account_currency"] = float(Decimal(str(a["credit_in_account_currency"])) + diff)
+					break
+				elif a.get("debit_in_account_currency"):
+					a["debit_in_account_currency"] = float(Decimal(str(a["debit_in_account_currency"])) - diff)
+					break
+
+		for a in accounts:
+			je_doc.append("accounts", a)
 		je_doc.save(ignore_permissions=True)
 		je_doc.submit()
+
 
 	def set_pending(self):
 		for row in self.site_wages_details:
